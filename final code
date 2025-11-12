@@ -1,0 +1,199 @@
+import tkinter as tk
+from tkinter import messagebox
+import pandas as pd
+import winsound
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import datetime
+
+# ---------------- Load Dataset ----------------
+# You can change .head(30) to .head(50) or remove it for full dataset
+data = pd.read_csv("crop_protection dataset.csv").head(30)
+
+# ---------------- GUI Setup ----------------
+window = tk.Tk()
+window.title("🌾 Smart Crop Protection System - Dataset Simulation 🌾")
+window.geometry("900x900")
+window.config(bg="#e8f5e9")
+
+title_label = tk.Label(window, text="SMART CROP PROTECTION SYSTEM USING IoT DATA",
+                       font=("Arial", 20, "bold"), bg="#1b5e20", fg="white", pady=10)
+title_label.pack(fill="x")
+
+# Labels for sensor data
+pir_label = tk.Label(window, text="PIR: --", font=("Arial", 16), bg="#e8f5e9")
+pir_label.pack(pady=5)
+
+ultra_label = tk.Label(window, text="Ultrasonic: -- cm", font=("Arial", 16), bg="#e8f5e9")
+ultra_label.pack(pady=5)
+
+temp_label = tk.Label(window, text="Temperature: -- °C", font=("Arial", 16), bg="#e8f5e9")
+temp_label.pack(pady=5)
+
+vib_label = tk.Label(window, text="Vibration: --", font=("Arial", 16), bg="#e8f5e9")
+vib_label.pack(pady=5)
+
+status_label = tk.Label(window, text="System Initializing...", font=("Arial", 18, "bold"), bg="#e8f5e9")
+status_label.pack(pady=10)
+
+alert_label = tk.Label(window, text="Total Alerts: 0", font=("Arial", 14, "bold"), bg="#e8f5e9", fg="red")
+alert_label.pack(pady=5)
+
+# ---------------- Graph Setup: Ultrasonic ----------------
+fig, ax = plt.subplots(figsize=(6, 3))
+ax.set_title("Ultrasonic Sensor Distance Over Time")
+ax.set_xlabel("Time Step")
+ax.set_ylabel("Distance (cm)")
+line, = ax.plot([], [], color="green", linewidth=2)
+ax.set_ylim(0, 500)
+ax.set_xlim(0, 50)
+
+canvas = FigureCanvasTkAgg(fig, master=window)
+canvas.get_tk_widget().pack(pady=10)
+
+# ---------------- Graph Setup: Temperature ----------------
+fig2, ax2 = plt.subplots(figsize=(6, 2))
+ax2.set_title("Temperature Variation Over Time")
+ax2.set_xlabel("Time Step")
+ax2.set_ylabel("Temperature (°C)")
+temp_line, = ax2.plot([], [], color="orange", linewidth=2)
+ax2.set_xlim(0, 50)
+ax2.set_ylim(0, 50)
+
+canvas2 = FigureCanvasTkAgg(fig2, master=window)
+canvas2.get_tk_widget().pack(pady=10)
+
+# ---------------- Data Lists ----------------
+x_vals = []
+y_vals = []
+temp_vals = []
+index = 0
+alert_count = 0
+speed_mode = "normal"
+
+# ---------------- Log File ----------------
+log_file = open("alert_log.txt", "w")
+log_file.write("=== Smart Crop Protection Alert Log ===\n\n")
+
+# ---------------- Simulation Logic ----------------
+def update_data():
+    global index, alert_count
+    if index >= len(data):
+        status_label.config(text="Simulation Complete ✅", fg="blue")
+        log_file.write("\nSimulation complete.\n")
+        log_file.close()
+        show_summary()
+        show_pie_chart()
+        return
+
+    row = data.iloc[index]
+    index_label.config(text=f"Row: {index + 1}/{len(data)}")
+    pir_label.config(text=f"PIR: {row['PIR']}")
+    ultra_label.config(text=f"Ultrasonic: {row['Ultrasonic']} cm")
+    temp_label.config(text=f"Temperature: {row['Temperature']} °C")
+    vib_label.config(text=f"Vibration: {row['Vibration']}")
+
+    # Update Graph (Ultrasonic)
+    x_vals.append(index)
+    y_vals.append(row['Ultrasonic'])
+    if len(x_vals) > 50:
+        x_vals.pop(0)
+        y_vals.pop(0)
+        ax.set_xlim(x_vals[0], x_vals[-1])
+    line.set_data(x_vals, y_vals)
+    ax.figure.canvas.draw()
+
+    # Update Temperature Graph
+    temp_vals.append(row['Temperature'])
+    if len(temp_vals) > 50:
+        temp_vals.pop(0)
+    temp_line.set_data(x_vals, temp_vals)
+    if temp_vals:
+        ax2.set_ylim(min(temp_vals) - 2, max(temp_vals) + 2)
+    ax2.set_xlim(x_vals[0], x_vals[-1])
+    ax2.figure.canvas.draw()
+
+    # Check for animal detection
+    if row['AnimalDetected'] == 1:
+        status_label.config(text="⚠ Animal Detected!", fg="red")
+        winsound.Beep(1000, 300)
+        messagebox.showwarning("Alert!", "Animal detected near crops!")
+
+        alert_count += 1
+        alert_label.config(text=f"Total Alerts: {alert_count}")
+
+        # Log event
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_file.write(f"[{timestamp}] ALERT: Animal detected (Row {index + 1})\n")
+        log_file.flush()
+    else:
+        status_label.config(text="✅ Safe Area", fg="green")
+
+    index += 1
+    delay = 300 if speed_mode == "fast" else 1500  # fast mode delay
+    window.after(delay, update_data)
+
+# ---------------- Summary & Charts ----------------
+def show_summary():
+    summary = data.describe()[['PIR', 'Ultrasonic', 'Temperature', 'Vibration']]
+    messagebox.showinfo("Dataset Summary", f"{summary}")
+
+def show_pie_chart():
+    alert_count = data['AnimalDetected'].sum()
+    safe_count = len(data) - alert_count
+    labels = ['Safe', 'Animal Detected']
+    values = [safe_count, alert_count]
+    plt.figure(figsize=(4, 4))
+    plt.pie(values, labels=labels, autopct='%1.1f%%', colors=['#81c784', '#e57373'])
+    plt.title("Alert Distribution Summary")
+    plt.show()
+
+# ---------------- Log Viewer ----------------
+def view_log():
+    with open("alert_log.txt", "r") as f:
+        log_content = f.read()
+    log_window = tk.Toplevel(window)
+    log_window.title("📜 Alert Log Viewer")
+    text_box = tk.Text(log_window, wrap="word", width=80, height=20)
+    text_box.insert("1.0", log_content)
+    text_box.pack()
+
+# ---------------- Start Buttons ----------------
+def start_simulation():
+    global speed_mode
+    speed_mode = "normal"
+    start_button.config(state="disabled")
+    fast_button.config(state="disabled")
+    update_data()
+
+def start_fast_simulation():
+    global speed_mode
+    speed_mode = "fast"
+    start_button.config(state="disabled")
+    fast_button.config(state="disabled")
+    update_data()
+
+start_button = tk.Button(window, text="▶ Start Simulation", font=("Arial", 14, "bold"),
+                         bg="#43a047", fg="white", padx=10, pady=5,
+                         command=start_simulation)
+start_button.pack(pady=10)
+
+fast_button = tk.Button(window, text="⚡ Fast Demo Mode", font=("Arial", 14, "bold"),
+                        bg="#fbc02d", fg="black", padx=10, pady=5,
+                        command=start_fast_simulation)
+fast_button.pack(pady=5)
+
+# Log viewer button
+log_button = tk.Button(window, text="📜 View Alert Log", font=("Arial", 12),
+                       bg="#66bb6a", fg="white", command=view_log)
+log_button.pack(pady=5)
+
+index_label = tk.Label(window, text="", font=("Arial", 12), bg="#e8f5e9", fg="gray")
+index_label.pack()
+
+# ---------------- Footer ----------------
+footer = tk.Label(window, text="Developed by [Your Name] | IoT + Smart Agriculture Project",
+                  font=("Arial", 10), bg="#c8e6c9")
+footer.pack(side="bottom", fill="x")
+
+window.mainloop()
